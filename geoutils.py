@@ -11,9 +11,7 @@ STATCAN_PR = "lpr_000b16a_e.zip"
 STATCAN_CSD = "lcsd000b16a_e.zip"
 
 
-# Functions
-
-def to_geojson(filename, filters={}, color_col=None):
+def to_geojson(filename, filters={}, color=None):
     """ 
     Convert statcan boundary data to a geojson file. When `filters` is not empty, filter the data.
     When `color_col` is set, add region coloring using Graph coloring via CSP
@@ -26,8 +24,8 @@ def to_geojson(filename, filters={}, color_col=None):
     filters : dict of str
         key-value pairs such that the key is a valid Statcan attribute and the value is value to filter by.
         
-    color_by : str 
-        the statcan attribute to color the map by. 
+    color : bool 
+        whether or not add region coloring based on 5-color graph coloring. 
     """
     path = pathlib.Path(filename)
     df = gpd.read_file(f"zip://{path}")
@@ -37,11 +35,15 @@ def to_geojson(filename, filters={}, color_col=None):
         df = df.loc[df[key] == filters[key]]
     
     # add regional coloring based on the graph coloring problem
-    if color_col:
-        color_map = color_regions(df, color_col, 5)
-        df["COLOR"] = -1
-        for node in color_map:
-            df.loc[df[color_col] == node, "COLOR"] = color_map[node]
+    if color:
+        col = get_id_col(df)
+        if not col:
+            print("Error: No unique UID found: region coloring skipped.")
+        else:
+            color_map = color_regions(df, col, 5)
+            df["COLOR"] = -1
+            for node in color_map:
+                df.loc[df[col] == node, "COLOR"] = color_map[node]
     
     # convert coordinate system from NAD83 used by statcan, to EPSG:4326 used in GPS
     df = df.to_crs("EPSG:4326")
@@ -50,7 +52,24 @@ def to_geojson(filename, filters={}, color_col=None):
     df.to_file(path.stem + ".json", driver="GeoJSON")
 
 
-# Graph functions
+def get_id_col(df):
+    """ Get the UID column of the given statcan data. if no unique UID is found, return None
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        the data to perform the action on
+        
+    Returns
+    -------
+    str or None
+    """
+    uids = df.filter(regex='.*UID$', axis=1)
+    for uid in uids:
+        if len(df[uid].unique()) == len(df[uid]):
+            return uid
+    return None
+
 
 def color_regions(df, col, num_colors):
     """
@@ -58,8 +77,8 @@ def color_regions(df, col, num_colors):
     
     Parameters
     ----------
-    graph : dict of set of int
-        an adjacency list for a given graph.
+    df : geopandas.GeoDataFrame
+        a dataframe containing geographic data.
         
     col : str
         the name of column containing unique values for reach row
@@ -92,5 +111,5 @@ def color_regions(df, col, num_colors):
     
 # call for sask rm map project
 if __name__ == "__main__":
-    #to_geojson(STATCAN_PR, filters={"PRNAME": "Saskatchewan"})
-    to_geojson(STATCAN_CSD, filters={"PRNAME": "Saskatchewan", "CSDTYPE": "RM"}, color_col="CSDUID")
+    to_geojson(STATCAN_PR, filters={"PRNAME": "Saskatchewan"})
+    to_geojson(STATCAN_CSD, filters={"PRNAME": "Saskatchewan", "CSDTYPE": "RM"}, color=True)
